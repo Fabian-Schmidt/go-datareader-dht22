@@ -16,12 +16,13 @@ import (
 // https://cdn-shop.adafruit.com/datasheets/Digital+humidity+and+temperature+sensor+AM2302.pdf
 
 const (
-	waitTimeBetweenRetry = 2 * time.Second
-	numberOfRetries      = 5
+	waitTimeBetweenRetry = 3 * time.Second
+	numberOfRetries      = 10
 )
 
 var (
 	pin                   int
+	debug                 bool
 	errMaxRetriesExceeded = errors.New("max retries exceeded")
 	errParameterMissing   = errors.New("invalid or missing parameter")
 )
@@ -36,6 +37,7 @@ type Output struct {
 
 func init() {
 	flag.IntVar(&pin, "pin", 0, "pin")
+	flag.BoolVar(&debug, "debug", false, "debug")
 }
 
 func main() {
@@ -50,7 +52,7 @@ func main() {
 		panic(err)
 	}
 
-	calcVPD(*out)
+	calcVPD(out)
 
 	b, err := json.Marshal(*out)
 	if err != nil {
@@ -60,13 +62,13 @@ func main() {
 	fmt.Println(string(b[:]))
 }
 
-func calcVPD(data Output) {
+func calcVPD(data *Output) {
 	// calculate vpd
 	// J. Win. (https://physics.stackexchange.com/users/1680/j-win),
 	// How can I calculate Vapor Pressure Deficit from Temperature and Relative Humidity?,
 	// URL (version: 2011-02-03): https://physics.stackexchange.com/q/4553
-	temperature64 := float64(data.Temperatur)
-	humidity64 := float64(data.Humidity)
+	temperature64 := float64((*data).Temperatur)
+	humidity64 := float64((*data).Humidity)
 
 	es := 0.6108 * math.Exp(17.27*temperature64/(temperature64+237.3))
 	ea := humidity64 / 100 * es
@@ -75,7 +77,7 @@ func calcVPD(data Output) {
 	// is invalid in this case because we are talking about a deficit.
 	vpd := (ea - es) * -1
 
-	data.VPD = vpd
+	(*data).VPD = vpd
 }
 
 func readWithRetry(pinNumber int, maxRetry int) (*Output, error) {
@@ -83,7 +85,6 @@ func readWithRetry(pinNumber int, maxRetry int) (*Output, error) {
 	for iteration := 0; iteration < maxRetry; iteration++ {
 		out, err := readData(pinNumber)
 		if err != nil {
-			iteration++
 			time.Sleep(waitTimeBetweenRetry)
 		} else {
 			(*out).Retry = iteration
@@ -97,14 +98,22 @@ func readWithRetry(pinNumber int, maxRetry int) (*Output, error) {
 func readData(pinNumber int) (*Output, error) {
 	err := rpio.Open()
 	if err != nil {
+		if debug {
+			fmt.Println("failed to Open")
+			fmt.Println(err)
+		}
 		return nil, err
 	}
 	defer rpio.Close()
 
 	dataPin := rpio.Pin(pinNumber)
 
-	data, err := dht22.ReadData(dataPin, false)
+	data, err := dht22.ReadData(dataPin, debug)
 	if err != nil {
+		if debug {
+			fmt.Println("failed to ReadData")
+			fmt.Println(err)
+		}
 		return nil, err
 	}
 
